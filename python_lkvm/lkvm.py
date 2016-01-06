@@ -482,3 +482,31 @@ class Client(object):
 
     def is_supported(self):
         return os.path.isfile(LKVM_PATH)
+
+    def find_root_partition(self, image_filename):
+        partition = None
+        command = ["fdisk", str(image_filename), "-l"]
+        _PIPE = subprocess.PIPE
+        obj = subprocess.Popen(command,
+                               stdin=_PIPE,
+                               stdout=_PIPE,
+                               stderr=_PIPE)
+        try:
+            result = obj.communicate()
+            obj.stdin.close()
+        except OSError as err:
+            if isinstance(err, ProcessExecutionError):
+                err_msg = ('{e[description]}\ncommand: {e[cmd]}\n'
+                           'exit code: {e[exit_code]}\nstdout: {e[stdout]}\n'
+                           'stderr: {e[stderr]}').format(e=err)
+                raise LKVMException(err_msg)
+        if result[1]:
+            raise LKVMException(result[1])
+        else:
+            if len(result[0]) > 9:
+                for device_info in result[0].split("\n")[8:-1]:
+                    if 'Linux root' in " ".join(device_info.split()[5:]):
+                        partition = device_info.split()[0][-1]
+                        break
+            result[0].split()
+        return partition
