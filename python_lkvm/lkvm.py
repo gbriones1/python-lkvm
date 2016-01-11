@@ -63,6 +63,23 @@ class Client(object):
 
         return type('LKVMInstance', (object,), props)
 
+    def _sys_call(self, cmd):
+        _PIPE = subprocess.PIPE
+        obj = subprocess.Popen(cmd,
+                               stdin=_PIPE,
+                               stdout=_PIPE,
+                               stderr=_PIPE)
+        try:
+            result = obj.communicate()
+            obj.stdin.close()
+            return result
+        except OSError as err:
+            if isinstance(err, ProcessExecutionError):
+                err_msg = ('{e[description]}\ncommand: {e[cmd]}\n'
+                           'exit code: {e[exit_code]}\nstdout: {e[stdout]}\n'
+                           'stderr: {e[stderr]}').format(e=err)
+                raise LKVMException(err_msg)
+
     def _execute(self, cmd, *args, **kwargs):
         """Helper method to shell out and execute a command through subprocess.
 
@@ -90,20 +107,7 @@ class Client(object):
             command = ' '.join(command) + ' >/dev/null 2>&1'
             subprocess.Popen(command, shell=True)
         else:
-            _PIPE = subprocess.PIPE
-            obj = subprocess.Popen(command,
-                                   stdin=_PIPE,
-                                   stdout=_PIPE,
-                                   stderr=_PIPE)
-            try:
-                result = obj.communicate()
-                obj.stdin.close()
-            except OSError as err:
-                if isinstance(err, ProcessExecutionError):
-                    err_msg = ('{e[description]}\ncommand: {e[cmd]}\n'
-                               'exit code: {e[exit_code]}\nstdout: {e[stdout]}\n'
-                               'stderr: {e[stderr]}').format(e=err)
-                    raise LKVMException(err_msg)
+            result = self._sys_call(command)
             if result[1]:
                 raise LKVMException(result[1])
 
@@ -484,29 +488,12 @@ class Client(object):
         return os.path.isfile(LKVM_PATH)
 
     def find_root_partition(self, image_filename):
-        partition = None
         command = ["fdisk", str(image_filename), "-l"]
-        _PIPE = subprocess.PIPE
-        obj = subprocess.Popen(command,
-                               stdin=_PIPE,
-                               stdout=_PIPE,
-                               stderr=_PIPE)
-        try:
-            result = obj.communicate()
-            obj.stdin.close()
-        except OSError as err:
-            if isinstance(err, ProcessExecutionError):
-                err_msg = ('{e[description]}\ncommand: {e[cmd]}\n'
-                           'exit code: {e[exit_code]}\nstdout: {e[stdout]}\n'
-                           'stderr: {e[stderr]}').format(e=err)
-                raise LKVMException(err_msg)
+        result = self._sys_call(command)
         if result[1]:
             raise LKVMException(result[1])
-        else:
-            if len(result[0]) > 9:
-                for device_info in result[0].split("\n")[8:-1]:
-                    if 'Linux root' in " ".join(device_info.split()[5:]):
-                        partition = device_info.split()[0][-1]
-                        break
-            result[0].split()
-        return partition
+        if len(result[0]) > 9:
+            for device_info in result[0].split("\n")[8:-1]:
+                if 'Linux root' in " ".join(device_info.split()[5:]):
+                    return device_info.split()[0][-1]
+        return None
